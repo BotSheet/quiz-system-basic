@@ -1,0 +1,365 @@
+<script>
+  // Global State
+  var quizState = {
+    testData: null,
+    currentQuestionIndex: 0,
+    answers: {}, // { "Q001": "B" }
+    timerInterval: null,
+    totalSecondsRemaining: 0,
+    secondsElapsed: 0,
+    hasSubmitted: false
+  };
+
+  var teacherState = {
+    cachedResults: []
+  };
+
+  function setLoader(visible, text) {
+    var overlay = document.getElementById('loading-overlay');
+    var label = document.getElementById('loading-text');
+    if (visible) {
+      label.innerText = text || 'Processing...';
+      overlay.classList.remove('hidden');
+    } else {
+      overlay.classList.add('hidden');
+    }
+  }
+
+  function showLoginView() {
+    document.getElementById('view-login').classList.remove('hidden');
+    document.getElementById('view-test').classList.add('hidden');
+    document.getElementById('view-result').classList.add('hidden');
+    document.getElementById('view-teacher').classList.add('hidden');
+  }
+
+  function handleLogin(e) {
+    e.preventDefault();
+    var errBox = document.getElementById('login-error');
+    errBox.classList.add('hidden');
+
+    var studentId = document.getElementById('student-id').value.trim();
+    var email = document.getElementById('student-email').value.trim();
+
+    if (!studentId || !email) {
+      errBox.innerText = 'Please enter both Student ID and Email.';
+      errBox.classList.remove('hidden');
+      return;
+    }
+
+    setLoader(true, 'Verifying test access...');
+
+    google.script.run
+      .withSuccessHandler(function(response) {
+        setLoader(false);
+        if (response.success) {
+          startQuiz(response.data);
+        } else {
+          errBox.innerText = response.message;
+          errBox.classList.remove('hidden');
+        }
+      })
+      .withFailureHandler(function(err) {
+        setLoader(false);
+        errBox.innerText = 'Failed to connect to server: ' + err.message;
+        errBox.classList.remove('hidden');
+      })
+      .validateAndFetchTest(studentId, email);
+  }
+
+  function startQuiz(data) {
+    quizState.testData = data;
+    quizState.currentQuestionIndex = 0;
+    quizState.answers = {};
+    quizState.hasSubmitted = false;
+    quizState.secondsElapsed = 0;
+    quizState.totalSecondsRemaining = (data.durationMinutes || 20) * 60;
+
+    // Set Top Header Info
+    document.getElementById('meta-test-name').innerText = data.testName;
+    document.getElementById('meta-student-name').innerText = data.student.name;
+    document.getElementById('meta-student-class').innerText = 'Class ' + data.student.studentClass;
+
+    // View Switching
+    document.getElementById('view-login').classList.add('hidden');
+    document.getElementById('view-test').classList.remove('hidden');
+
+    renderPalette();
+    renderQuestion(0);
+    startTimer();
+  }
+
+  function startTimer() {
+    updateTimerDisplay();
+    quizState.timerInterval = setInterval(function() {
+      quizState.totalSecondsRemaining--;
+      quizState.secondsElapsed++;
+      updateTimerDisplay();
+
+      if (quizState.totalSecondsRemaining <= 0) {
+        clearInterval(quizState.timerInterval);
+        alert('Time is up! Submitting your test automatically.');
+        executeSubmission();
+      }
+    }, 1000);
+  }
+
+  function updateTimerDisplay() {
+    var totalSec = Math.max(0, quizState.totalSecondsRemaining);
+    var mins = Math.floor(totalSec / 60);
+    var secs = totalSec % 60;
+    var disp = (mins < 10 ? '0' : '') + mins + ':' + (secs < 10 ? '0' : '') + secs;
+    
+    var timerElem = document.getElementById('timer-display');
+    timerElem.innerText = disp;
+
+    // 5-minute warning indicator
+    if (totalSec <= 300) {
+      timerElem.classList.add('timer-warning');
+    } else {
+      timerElem.classList.remove('timer-warning');
+    }
+  }
+
+  function renderQuestion(index) {
+    quizState.currentQuestionIndex = index;
+    var qList = quizState.testData.questions;
+    var q = qList[index];
+
+    document.getElementById('q-number-badge').innerText = 'Question ' + (index + 1) + ' of ' + qList.length;
+    document.getElementById('q-topic-badge').innerText = q.topic || q.chapter || 'Chemistry';
+    document.getElementById('q-text').innerText = q.question;
+
+    // Options rendering
+    var options = [
+      { key: 'A', text: q.optionA },
+      { key: 'B', text: q.optionB },
+      { key: 'C', text: q.optionC },
+      { key: 'D', text: q.optionD }
+    ];
+
+    var optionsContainer = document.getElementById('options-list');
+    optionsContainer.innerHTML = '';
+
+    var selectedOpt = quizState.answers[q.questionId] || '';
+
+    options.forEach(function(opt) {
+      if (opt.text !== null && opt.text !== undefined && String(opt.text).trim() !== '') {
+        var optDiv = document.createElement('div');
+        optDiv.className = 'option-item' + (selectedOpt === opt.key ? ' selected' : '');
+        optDiv.onclick = function() { selectOption(q.questionId, opt.key); };
+
+        var keyBadge = document.createElement('span');
+        keyBadge.className = 'option-key';
+        keyBadge.innerText = opt.key;
+
+        var optText = document.createElement('span');
+        optText.className = 'option-text';
+        optText.innerText = opt.text;
+
+        optDiv.appendChild(keyBadge);
+        optDiv.appendChild(optText);
+        optionsContainer.appendChild(optDiv);
+      }
+    });
+
+    // Navigation buttons state
+    document.getElementById('btn-prev').disabled = (index === 0);
+    document.getElementById('btn-next').disabled = (index === qList.length - 1);
+
+    updatePaletteSelection();
+  }
+
+  function selectOption(qId, optionKey) {
+    quizState.answers[qId] = optionKey;
+    renderQuestion(quizState.currentQuestionIndex);
+    renderPalette();
+  }
+
+  function clearCurrentSelection() {
+    var q = quizState.testData.questions[quizState.currentQuestionIndex];
+    delete quizState.answers[q.questionId];
+    renderQuestion(quizState.currentQuestionIndex);
+    renderPalette();
+  }
+
+  function navigateQuestion(step) {
+    var target = quizState.currentQuestionIndex + step;
+    if (target >= 0 && target < quizState.testData.questions.length) {
+      renderQuestion(target);
+    }
+  }
+
+  function renderPalette() {
+    var container = document.getElementById('question-palette');
+    container.innerHTML = '';
+    var qList = quizState.testData.questions;
+
+    qList.forEach(function(q, idx) {
+      var btn = document.createElement('button');
+      var isAnswered = !!quizState.answers[q.questionId];
+      var isCurrent = (idx === quizState.currentQuestionIndex);
+
+      btn.className = 'palette-btn' + (isAnswered ? ' answered' : '') + (isCurrent ? ' current' : '');
+      btn.innerText = (idx + 1);
+      btn.onclick = function() { renderQuestion(idx); };
+      container.appendChild(btn);
+    });
+  }
+
+  function updatePaletteSelection() {
+    var buttons = document.querySelectorAll('.palette-btn');
+    buttons.forEach(function(btn, idx) {
+      if (idx === quizState.currentQuestionIndex) {
+        btn.classList.add('current');
+      } else {
+        btn.classList.remove('current');
+      }
+    });
+  }
+
+  function confirmAndSubmit() {
+    var qList = quizState.testData.questions;
+    var answeredCount = Object.keys(quizState.answers).length;
+    var unansweredCount = qList.length - answeredCount;
+
+    var msg = 'Are you sure you want to submit the test?\n\n' +
+              'Answered: ' + answeredCount + '\n' +
+              'Unanswered: ' + unansweredCount;
+
+    if (confirm(msg)) {
+      executeSubmission();
+    }
+  }
+
+  function executeSubmission() {
+    if (quizState.hasSubmitted) return;
+    quizState.hasSubmitted = true;
+
+    if (quizState.timerInterval) {
+      clearInterval(quizState.timerInterval);
+    }
+
+    setLoader(true, 'Evaluating your answers and generating report...');
+
+    var payload = {
+      studentId: quizState.testData.student.studentId,
+      testId: quizState.testData.testId,
+      answers: quizState.answers,
+      timeTakenSeconds: quizState.secondsElapsed
+    };
+
+    google.script.run
+      .withSuccessHandler(function(response) {
+        setLoader(false);
+        if (response.success) {
+          showResultView(response.report);
+        } else {
+          alert('Submission Error: ' + response.message);
+        }
+      })
+      .withFailureHandler(function(err) {
+        setLoader(false);
+        alert('Critical error saving submission: ' + err.message);
+      })
+      .submitQuizAnswers(payload);
+  }
+
+  function showResultView(report) {
+    document.getElementById('view-test').classList.add('hidden');
+    document.getElementById('view-result').classList.remove('hidden');
+
+    document.getElementById('res-test-name').innerText = report.testName + ' — ' + report.studentName;
+    document.getElementById('res-score').innerText = report.score + ' / ' + report.maxMarks;
+    document.getElementById('res-percentage').innerText = report.percentage + '%';
+    document.getElementById('res-feedback').innerText = report.feedbackMessage;
+
+    document.getElementById('res-correct').innerText = report.correct;
+    document.getElementById('res-incorrect').innerText = report.incorrect;
+    document.getElementById('res-unanswered').innerText = report.unanswered;
+    document.getElementById('res-accuracy').innerText = report.accuracy + '%';
+    document.getElementById('res-time-taken').innerText = report.timeTaken;
+
+    document.getElementById('res-strong-area').innerText = report.strongArea;
+    document.getElementById('res-weak-area').innerText = report.needsRevision;
+
+    var tbody = document.getElementById('topic-table-body');
+    tbody.innerHTML = '';
+
+    if (report.topicSummary && report.topicSummary.length > 0) {
+      report.topicSummary.forEach(function(row) {
+        var tr = document.createElement('tr');
+        tr.innerHTML = '<td>' + row.topic + '</td>' +
+                       '<td>' + row.questions + '</td>' +
+                       '<td>' + row.correct + '</td>' +
+                       '<td><strong>' + row.accuracy + '%</strong></td>';
+        tbody.appendChild(tr);
+      });
+      document.getElementById('topic-performance-section').classList.remove('hidden');
+    } else {
+      document.getElementById('topic-performance-section').classList.add('hidden');
+    }
+
+    window.scrollTo(0, 0);
+  }
+
+  // Teacher Dashboard Functions
+  function showTeacherDashboard() {
+    setLoader(true, 'Fetching test results...');
+    google.script.run
+      .withSuccessHandler(function(resp) {
+        setLoader(false);
+        if (resp.success) {
+          teacherState.cachedResults = resp.results || [];
+          document.getElementById('dash-total').innerText = resp.totalCompleted;
+          document.getElementById('dash-avg').innerText = resp.avgScore;
+          document.getElementById('dash-high').innerText = resp.highestScore;
+          document.getElementById('dash-low').innerText = resp.lowestScore;
+          renderDashboardTable(teacherState.cachedResults);
+
+          document.getElementById('view-login').classList.add('hidden');
+          document.getElementById('view-teacher').classList.remove('hidden');
+        } else {
+          alert('Could not load dashboard: ' + resp.message);
+        }
+      })
+      .withFailureHandler(function(err) {
+        setLoader(false);
+        alert('Server error: ' + err.message);
+      })
+      .getTeacherDashboardData();
+  }
+
+  function renderDashboardTable(data) {
+    var tbody = document.getElementById('dash-table-body');
+    tbody.innerHTML = '';
+
+    if (!data || data.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center">No student submissions recorded for this active test.</td></tr>';
+      return;
+    }
+
+    data.forEach(function(r) {
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td><strong>' + r.studentName + '</strong></td>' +
+                     '<td>' + r.score + ' / ' + r.maxMarks + '</td>' +
+                     '<td>' + r.percentage + '%</td>' +
+                     '<td class="text-success">' + r.correct + '</td>' +
+                     '<td class="text-danger">' + r.incorrect + '</td>' +
+                     '<td>' + r.accuracy + '%</td>' +
+                     '<td>' + r.timeTaken + '</td>';
+      tbody.appendChild(tr);
+    });
+  }
+
+  function sortDashboard(type) {
+    var arr = teacherState.cachedResults.slice(0);
+    if (type === 'score') {
+      arr.sort(function(a, b) { return b.score - a.score; });
+    } else if (type === 'percentage') {
+      arr.sort(function(a, b) { return b.percentage - a.percentage; });
+    } else if (type === 'name') {
+      arr.sort(function(a, b) { return a.studentName.localeCompare(b.studentName); });
+    }
+    renderDashboardTable(arr);
+  }
+</script>
