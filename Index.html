@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Chemistry Weekly Quiz</title>
+  <?!= include('CSS'); ?>
+</head>
+<body>
+
+  <header class="app-header">
+    <div class="header-container">
+      <span class="logo-icon">⚗️</span>
+      <h1>Chemistry Weekly Test</h1>
+    </div>
+  </header>
+
+  <main class="main-wrapper">
+    <!-- VIEW 1: LOGIN / START PAGE -->
+    <section id="view-login" class="card active">
+      <h2>Student Login</h2>
+      <p class="subtitle">Enter your registered student credentials to begin.</p>
+      
+      <div id="login-error" class="alert-box error hidden"></div>
+
+      <form id="form-login" onsubmit="handleLogin(event)">
+        <div class="form-group">
+          <label for="student-id">Student ID</label>
+          <input type="text" id="student-id" placeholder="e.g. S001" autocomplete="off" required>
+        </div>
+
+        <div class="form-group">
+          <label for="student-email">Registered Email</label>
+          <input type="email" id="student-email" placeholder="e.g. student@email.com" autocomplete="off" required>
+        </div>
+
+        <button type="submit" id="btn-start" class="btn btn-primary btn-block">
+          Start Test
+        </button>
+      </form>
+
+      <div class="teacher-link-wrap">
+        <a href="javascript:void(0)" onclick="showTeacherDashboard()">Teacher Dashboard</a>
+      </div>
+    </section>
+
+    <!-- VIEW 2: ACTIVE TEST INTERFACE -->
+    <section id="view-test" class="hidden">
+      <div class="test-topbar">
+        <div class="student-meta">
+          <strong id="meta-test-name">Chemistry Test</strong>
+          <span id="meta-student-name">Student</span> (<span id="meta-student-class">Class 11</span>)
+        </div>
+        <div id="timer-box" class="timer-box">
+          <span class="timer-label">Time Remaining</span>
+          <span id="timer-display" class="timer-time">00:00</span>
+        </div>
+      </div>
+
+      <div class="quiz-container card">
+        <div class="question-header">
+          <span id="q-number-badge" class="badge">Question 1 of 20</span>
+          <span id="q-topic-badge" class="badge-subtle">Topic</span>
+        </div>
+
+        <div id="q-text" class="question-text">
+          Question content will appear here...
+        </div>
+
+        <div id="options-list" class="options-container">
+          <!-- Options A, B, C, D rendered by JS -->
+        </div>
+
+        <div class="action-buttons">
+          <button id="btn-prev" class="btn btn-secondary" onclick="navigateQuestion(-1)">Previous</button>
+          <button id="btn-clear" class="btn btn-subtle" onclick="clearCurrentSelection()">Clear Selection</button>
+          <button id="btn-next" class="btn btn-primary" onclick="navigateQuestion(1)">Next</button>
+        </div>
+      </div>
+
+      <!-- Navigation Grid -->
+      <div class="card palette-card">
+        <h3>Question Navigator</h3>
+        <div id="question-palette" class="palette-grid">
+          <!-- 1, 2, 3 ... buttons dynamically rendered -->
+        </div>
+        <div class="palette-legend">
+          <span><span class="dot answered"></span> Answered</span>
+          <span><span class="dot unanswered"></span> Unanswered</span>
+          <span><span class="dot current"></span> Current</span>
+        </div>
+        <button class="btn btn-danger btn-block submit-btn" onclick="confirmAndSubmit()">Submit Test</button>
+      </div>
+    </section>
+
+    <!-- VIEW 3: RESULT & SCORE CARD -->
+    <section id="view-result" class="card hidden">
+      <div class="result-header">
+        <div class="check-icon">✓</div>
+        <h2>Test Completed</h2>
+        <p id="res-test-name" class="subtitle">Chemistry Test</p>
+      </div>
+
+      <div class="score-banner">
+        <div class="score-main">
+          <span class="score-label">Your Score</span>
+          <h1 id="res-score">0 / 0</h1>
+        </div>
+        <div class="percentage-box">
+          <span class="score-label">Percentage</span>
+          <h2 id="res-percentage">0%</h2>
+        </div>
+      </div>
+
+      <div id="res-feedback" class="feedback-banner">
+        Encouraging feedback text goes here.
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <span class="stat-num text-success" id="res-correct">0</span>
+          <span class="stat-lbl">Correct</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-num text-danger" id="res-incorrect">0</span>
+          <span class="stat-lbl">Incorrect</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-num text-muted" id="res-unanswered">0</span>
+          <span class="stat-lbl">Unanswered</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-num" id="res-accuracy">0%</span>
+          <span class="stat-lbl">Accuracy</span>
+        </div>
+      </div>
+
+      <div class="timing-info">
+        Time Taken: <strong id="res-time-taken">0 min 00 sec</strong>
+      </div>
+
+      <!-- Topic Performance -->
+      <div id="topic-performance-section" class="topic-section">
+        <h3>Topic-wise Breakdown</h3>
+        <div class="highlight-boxes">
+          <div class="highlight-box strong">
+            <span class="hl-title">Strong Area</span>
+            <span id="res-strong-area" class="hl-content">N/A</span>
+          </div>
+          <div class="highlight-box weak">
+            <span class="hl-title">Needs Revision</span>
+            <span id="res-weak-area" class="hl-content">N/A</span>
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table class="report-table">
+            <thead>
+              <tr>
+                <th>Topic</th>
+                <th>Questions</th>
+                <th>Correct</th>
+                <th>Accuracy</th>
+              </tr>
+            </thead>
+            <tbody id="topic-table-body">
+              <!-- Dynamically Populated -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <p class="email-notice">A copy of this evaluation report has been dispatched to your email.</p>
+    </section>
+
+    <!-- VIEW 4: TEACHER DASHBOARD -->
+    <section id="view-teacher" class="card hidden">
+      <div class="dashboard-header">
+        <h2>Teacher Summary Dashboard</h2>
+        <button class="btn btn-secondary btn-sm" onclick="showLoginView()">Back to Test</button>
+      </div>
+
+      <div id="teacher-stats-bar" class="stats-grid">
+        <div class="stat-card">
+          <span class="stat-num" id="dash-total">0</span>
+          <span class="stat-lbl">Completed</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-num" id="dash-avg">0</span>
+          <span class="stat-lbl">Average Score</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-num text-success" id="dash-high">0</span>
+          <span class="stat-lbl">Highest</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-num text-danger" id="dash-low">0</span>
+          <span class="stat-lbl">Lowest</span>
+        </div>
+      </div>
+
+      <div class="sort-toolbar">
+        <label>Sort By: </label>
+        <button class="btn-chip" onclick="sortDashboard('score')">Score</button>
+        <button class="btn-chip" onclick="sortDashboard('percentage')">Percentage</button>
+        <button class="btn-chip" onclick="sortDashboard('name')">Student Name</button>
+      </div>
+
+      <div class="table-responsive">
+        <table class="report-table">
+          <thead>
+            <tr>
+              <th>Student</th>
+              <th>Score</th>
+              <th>Percentage</th>
+              <th>Correct</th>
+              <th>Incorrect</th>
+              <th>Accuracy</th>
+              <th>Time</th>
+            </tr>
+          </thead>
+          <tbody id="dash-table-body">
+            <tr><td colspan="7" class="text-center">Loading dashboard records...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay hidden">
+      <div class="spinner"></div>
+      <p id="loading-text">Processing...</p>
+    </div>
+  </main>
+
+  <?!= include('JavaScript'); ?>
+</body>
+</html>
